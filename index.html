@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Katasumi — One Piece Trivia Duel</title>
+  <style>
+    :root {
+      --bg-dark: #121214;
+      --panel-dark: #1a1a1e;
+      --accent-gold: #ffcc00;
+      --text-main: #ffffff;
+      --text-muted: #a0a0ab;
+      --btn-hover: #2a2a32;
+      --border-color: #2e2e38;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .game-container {
+      width: 100%;
+      max-width: 440px;
+      height: 100vh;
+      max-height: 750px;
+      background-color: var(--panel-dark);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+      border-radius: 12px;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: 32px 24px;
+      box-sizing: border-box;
+    }
+
+    h2 { margin-top: 0; color: var(--text-main); font-size: 1.75rem;}
+    p { color: var(--text-muted); line-height: 1.5; }
+
+    /* Forms and Inputs */
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    input {
+      background-color: #24242b;
+      border: 2px solid var(--border-color);
+      border-radius: 8px;
+      padding: 14px;
+      color: #fff;
+      font-size: 1rem;
+      outline: none;
+    }
+    input:focus { border-color: var(--accent-gold); }
+
+    .primary-btn {
+      background-color: var(--accent-gold);
+      color: #121214;
+      border: none;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .primary-btn:hover { opacity: 0.9; }
+
+    /* Battle HUD */
+    .hud {
+      padding: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .timer-container { width: 100%; height: 6px; background-color: var(--border-color); }
+    .timer-bar { width: 100%; height: 100%; background-color: var(--accent-gold); transition: width 0.1s linear; }
+
+    /* Choices Stack */
+    .choices-container { display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
+    .choice-btn {
+      background-color: #24242b;
+      border: 2px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-main);
+      padding: 16px;
+      font-size: 1rem;
+      text-align: left;
+      cursor: pointer;
+    }
+    .choice-btn.selected { border-color: var(--accent-gold); background-color: #2c2500; }
+
+    /* Full-screen Overlay states */
+    .overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(18, 18, 20, 0.98);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+      box-sizing: border-box;
+      z-index: 10;
+      text-align: center;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div class="game-container">
+    
+    <!-- PHASE 1: LOGIN PANEL -->
+    <div id="login-panel" class="panel">
+      <h2>Welcome to Katasumi</h2>
+      <p>Enter a temporary username to access the secret trivia clubhouse.</p>
+      <div class="input-group">
+        <input type="text" id="username-input" placeholder="e.g., Luffy123" autocomplete="off">
+      </div>
+      <button class="primary-btn" onclick="login()">Enter Lobby</button>
+    </div>
+
+    <!-- PHASE 2: LOBBY DECK PANEL -->
+    <div id="lobby-panel" class="panel hidden">
+      <h2>The Deck</h2>
+      <p>Logged in as: <strong id="user-display" style="color: var(--accent-gold);"></strong></p>
+      
+      <div class="input-group" style="margin-top: 24px;">
+        <label style="font-size: 0.9rem; color: var(--text-muted);">Challenge a Friend</label>
+        <input type="text" id="opponent-input" placeholder="Enter friend's username...">
+      </div>
+      <button class="primary-btn" onclick="issueChallenge()">Send Duel Invite</button>
+
+      <div id="incoming-box" style="margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 24px;">
+        <p style="font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">Incoming Invites</p>
+        <div id="invite-list"><p style="font-style: italic; font-size: 0.95rem;">Scanning Den Den Mushi for invites...</p></div>
+      </div>
+    </div>
+
+    <!-- PHASE 3: THE BATTLE ARENA -->
+    <div id="battle-panel" class="panel hidden" style="padding: 0;">
+      <div class="hud">
+        <div id="hud-player">You: 0</div>
+        <div id="hud-round" style="font-weight: bold;">Q 1/5</div>
+        <div id="hud-opponent">Rival: 0</div>
+      </div>
+      <div class="timer-container"><div id="timer-bar" class="timer-bar"></div></div>
+      
+      <div style="padding: 24px; flex-grow: 1; display: flex; flex-direction: column;">
+        <div style="margin-top: 40px; text-align: center;">
+          <div id="arc-tag" style="color: var(--accent-gold); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;"></div>
+          <h3 id="question-text" style="font-size: 1.3rem; line-height: 1.4; margin: 0;"></h3>
+        </div>
+        <div id="choices-box" class="choices-container"></div>
+      </div>
+    </div>
+
+    <!-- PERSISTENT WAITING & RESOLUTION OVERLAY -->
+    <div id="match-overlay" class="overlay hidden">
+      <h3 id="overlay-msg">Waiting...</h3>
+      <div id="round-breakdown" style="margin: 20px 0; color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;"></div>
+      <button id="overlay-action-btn" class="primary-btn hidden" style="width: 100%;" onclick="nextAction()">Advance</button>
+    </div>
+
+  </div>
+
+  <script>
+    // Point this to your local serverless instance running via `vercel dev`
+    const API_BASE = 'http://localhost:3000/api';
+
+    const state = {
+      user: "", opponent: "", roomId: "",
+      questions: [], currentIdx: 0,
+      timeLeft: 10, timer: null, startTime: null,
+      hasAnswered: false, pollingInterval: null
+    };
+
+    // --- PHASE 1: LOGIN ENGINE ---
+    function login() {
+      const username = document.getElementById('username-input').value.trim();
+      if (!username) return alert("Pick a name first!");
+      state.user = username;
+      document.getElementById('user-display').innerText = state.user;
+      
+      document.getElementById('login-panel').classList.add('hidden');
+      document.getElementById('lobby-panel').classList.remove('hidden');
+
+      // Start looking for invites directed at this username immediately
+      startCheckingForInvites();
+    }
+
+    // --- PHASE 2: LOBBY SEEDING ---
+    async function issueChallenge() {
+      const target = document.getElementById('opponent-input').value.trim();
+      if (!target) return alert("Who do you want to fight?");
+      if (target.toLowerCase() === state.user.toLowerCase()) return alert("You can't duel yourself!");
+      
+      state.opponent = target;
+      state.roomId = `room:${target.toLowerCase()}`;
+
+      showOverlay("Sending challenge to " + target + "...");
+
+      const res = await fetch(`${API_BASE}/challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hostUser: state.user, challengedUser: target })
+      });
+      const data = await res.json();
+
+      if (data.status === 'success') {
+        // Sit back and check every 2 seconds if they accepted the match
+        state.pollingInterval = setInterval(checkIfChallengeAccepted, 2000);
+      }
+    }
+
+    function startCheckingForInvites() {
+      // Poll Vercel KV via check-round route indirectly to see if a lobby key exists under our name
+      setInterval(async () => {
+        try {
+          const res = await fetch(`${API_BASE}/check-round?roomId=room:${state.user.toLowerCase()}&index=0`);
+          const data = await res.json();
+          // If a pending room is sitting on the server waiting for us
+          if (data.status === 'waiting' || data.status === 'round_resolved') {
+            updateInviteUI();
+          }
+        } catch(e){}
+      }, 3000);
+    }
+
+    function updateInviteUI() {
+      const box = document.getElementById('invite-list');
+      box.innerHTML = `
+        <div style="background:#24242b; padding:16px; border:2px solid var(--border-color); border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+          <span>Incoming Challenge Found!</span>
+          <button class="primary-btn" style="padding:8px 16px; font-size:0.9rem;" onclick="acceptMatch()">Fight</button>
+        </div>`;
+    }
+
+    async function acceptMatch() {
+      state.roomId = `room:${state.user.toLowerCase()}`;
+      showOverlay("Loading Match Map...");
+
+      const res = await fetch(`${API_BASE}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId: state.roomId, guestUser: state.user })
+      });
+      const data = await res.json();
+      
+      if (data.status === 'ready') {
+        state.opponent = data.room.host;
+        state.questions = data.room.clientQuestions; // Extract safe questions
+        launchBattle();
+      }
+    }
+
+    async function checkIfChallengeAccepted() {
+      // If host hits this and gets safe questions back, opponent has hit accept!
+      const res = await fetch(`${API_BASE}/check-round?roomId=${state.roomId}&index=0`);
+      const data = await res.json();
+      if (data.room && data.room.status === 'playing') {
+        clearInterval(state.pollingInterval);
+        state.questions = data.room.clientQuestions;
+        launchBattle();
+      }
+    }
+
+    // --- PHASE 3: ARENA MATCH LOOPS ---
+    function launchBattle() {
+      document.getElementById('lobby-panel').classList.add('hidden');
+      document.getElementById('battle-panel').classList.remove('hidden');
+      hideOverlay();
+      loadQuestion();
+    }
+
+    function loadQuestion() {
+      state.hasAnswered = false;
+      state.timeLeft = 10;
+      state.startTime = Date.now();
+
+      const q = state.questions[state.currentIdx];
+      document.getElementById('hud-round').innerText = `Q ${state.currentIdx + 1}/5`;
+      document.getElementById('arc-tag').innerText = q.arc;
+      document.getElementById('question-text').innerText = q.question;
+
+      const box = document.getElementById('choices-box');
+      box.innerHTML = '';
+      q.choices.forEach(choice => {
+        const btn = document.createElement('button');
+        btn.className = 'choice-btn';
+        btn.innerText = choice;
+        btn.onclick = () => lockAnswer(btn, choice);
+        box.appendChild(btn);
+      });
+
+      clearInterval(state.timer);
+      state.timer = setInterval(() => {
+        state.timeLeft -= 0.1;
+        document.getElementById('timer-bar').style.width = `${(state.timeLeft / 10) * 100}%`;
+        if (state.timeLeft <= 0) {
+          clearInterval(state.timer);
+          lockAnswer(null, "");
+        }
+      }, 100);
+    }
+
+    async function lockAnswer(btn, choice) {
+      if (state.hasAnswered) return;
+      state.hasAnswered = true;
+      clearInterval(state.timer);
+
+      if (btn) btn.classList.add('selected');
+      const duration = (Date.now() - state.startTime) / 1000;
+
+      showOverlay("Locking choice... Waiting for rival.");
+
+      const res = await fetch(`${API_BASE}/submit-answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: state.roomId, username: state.user,
+          questionIndex: state.currentIdx, choice: choice, timeTaken: duration
+        })
+      });
+      const data = await res.json();
+
+      if (data.status === 'waiting') {
+        // Start polling the serverless endpoint until the rival submits
+        state.pollingInterval = setInterval(pollForRoundResolution, 1200);
+      } else if (data.status === 'round_resolved') {
+        revealScores(data.roundData);
+      }
+    }
+
+    async function pollForRoundResolution() {
+      const res = await fetch(`${API_BASE}/check-round?roomId=${state.roomId}&index=${state.currentIdx}`);
+      const data = await res.json();
+      if (data.status === 'round_resolved') {
+        clearInterval(state.pollingInterval);
+        revealScores(data.roundData);
+      }
+    }
+
+    function revealScores(roundData) {
+      document.getElementById('hud-player').innerText = `You: ${roundData.currentScores[state.user] || 0}`;
+      // Safely read opponent's live score mutation
+      const oppScore = roundData.currentScores[state.opponent] || 0;
+      document.getElementById('hud-opponent').innerText = `${state.opponent}: ${oppScore}`;
+
+      document.getElementById('overlay-msg').innerText = "Round Results";
+      
+      const pRes = roundData.playerResults[state.user];
+      const oRes = roundData.playerResults[state.opponent];
+      
+      document.getElementById('round-breakdown').innerHTML = `
+        <p>Correct Answer: <strong style="color:var(--accent-gold);">${roundData.correctAnswer}</strong></p>
+        <div style="text-align:left; background:#24242b; padding:12px; border-radius:6px; margin-top:10px;">
+          Your Speed: ${pRes.time.toFixed(2)}s (${pRes.correct ? '✓' : '✗'}) $\rightarrow$ +${pRes.pointsEarned} pts<br>
+          Rival Speed: ${oRes.time.toFixed(2)}s (${oRes.correct ? '✓' : '✗'}) $\rightarrow$ +${oRes.pointsEarned} pts
+        </div>
+        ${roundData.speedBonusWinner ? `<p style="color:var(--accent-gold); font-weight:bold; margin-top:15px;">⚡ ${roundData.speedBonusWinner} won the Speed Bonus! ⚡</p>` : ''}
+      `;
+
+      const actionBtn = document.getElementById('overlay-action-btn');
+      actionBtn.innerText = state.currentIdx < 4 ? "Next Question" : "View Final Standings";
+      actionBtn.classList.remove('hidden');
+    }
+
+    function nextAction() {
+      document.getElementById('overlay-action-btn').classList.add('hidden');
+      if (state.currentIdx < 4) {
+        state.currentIdx++;
+        hideOverlay();
+        loadQuestion();
+      } else {
+        document.getElementById('overlay-msg').innerText = "Match Concluded";
+        document.getElementById('overlay-action-btn').classList.add('hidden');
+      }
+    }
+
+    // Helpers
+    function showOverlay(msg) {
+      document.getElementById('overlay-msg').innerText = msg;
+      document.getElementById('round-breakdown').innerHTML = '';
+      document.getElementById('match-overlay').classList.remove('hidden');
+    }
+    function hideOverlay() { document.getElementById('match-overlay').classList.add('hidden'); }
+  </script>
+</body>
+</html>
