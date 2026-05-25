@@ -209,7 +209,7 @@
       startCheckingForInvites();
     }
 
-    // --- PHASE 2: LOBBY SEEDING ---
+    // --- SAFE LOBBY SEEDING ---
     async function issueChallenge() {
       const target = document.getElementById('opponent-input').value.trim();
       if (!target) return alert("Who do you want to fight?");
@@ -219,58 +219,96 @@
       state.roomId = `room:${target.toLowerCase()}`;
 
       showOverlay("Sending challenge to " + target + "...");
+      console.log("CRITICAL: Firing Challenge POST to:", `${API_BASE}/challenge`);
 
-      const res = await fetch(`${API_BASE}/challenge`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hostUser: state.user, challengedUser: target })
-      });
-      const data = await res.json();
-
-      if (data.status === 'success') {
-        // Sit back and check every 2 seconds if they accepted the match
-        state.pollingInterval = setInterval(checkIfChallengeAccepted, 2000);
+      try {
+        const res = await fetch(`${API_BASE}/challenge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hostUser: state.user, challengedUser: target })
+        });
+        
+        const data = await res.json();
+        if (data.status === 'success') {
+          // Clear any old loops before starting a new one
+          if (state.pollingInterval) clearInterval(state.pollingInterval);
+          state.pollingInterval = setInterval(checkIfChallengeAccepted, 2000);
+        } else {
+          throw new Error(data.error || "Unknown server response");
+        }
+      } catch (error) {
+        hideOverlay();
+        alert("🚨 Challenge Failed: " + error.message);
+        console.error(error);
       }
     }
 
+    // --- BINDING INVITE SCANNER ---
+    let inviteScannerInterval = null;
+
     function startCheckingForInvites() {
-      // Poll Vercel KV via check-round route indirectly to see if a lobby key exists under our name
-      setInterval(async () => {
+      if (inviteScannerInterval) clearInterval(inviteScannerInterval);
+      
+      inviteScannerInterval = setInterval(async () => {
+        // Stop checking if the user is already actively setting up a room
+        if (!state.user || state.roomId) return; 
+
         try {
-          const res = await fetch(`${API_BASE}/check-round?roomId=room:${state.user.toLowerCase()}&index=0`);
+          const checkUrl = `${API_BASE}/check-round?roomId=room:${state.user.toLowerCase()}&index=0`;
+          const res = await fetch(checkUrl);
+          if (!res.ok) return; // Ignore silent background 404s/dropped frames
+          
           const data = await res.json();
-          // If a pending room is sitting on the server waiting for us
           if (data.status === 'waiting' || data.status === 'round_resolved') {
             updateInviteUI();
           }
-        } catch(e){}
+        } catch (error) {
+          console.error("Scanner drop:", error.message);
+        }
       }, 3000);
     }
 
-    function updateInviteUI() {
-      const box = document.getElementById('invite-list');
-      box.innerHTML = `
-        <div style="background:#24242b; padding:16px; border:2px solid var(--border-color); border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
-          <span>Incoming Challenge Found!</span>
-          <button class="primary-btn" style="padding:8px 16px; font-size:0.9rem;" onclick="acceptMatch()">Fight</button>
-        </div>`;
-    }
-
+    // --- SAFE ACCEPT ENGINE ---
     async function acceptMatch() {
+      // KILL the background scanner immediately so it doesn't double-fire requests
+      if (inviteScannerInterval) {
+        clearInterval(inviteScannerInterval);
+        inviteScannerInterval = null;
+      }
+
       state.roomId = `room:${state.user.toLowerCase()}`;
       showOverlay("Loading Match Map...");
-
-      const res = await fetch(`${API_BASE}/accept`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId: state.roomId, guestUser: state.user })
-      });
-      const data = await res.json();
       
-      if (data.status === 'ready') {
-        state.opponent = data.room.host;
-        state.questions = data.room.clientQuestions; // Extract safe questions
-        launchBattle();
+      const targetUrl = `${API_BASE}/accept`;
+      console.log("CRITICAL: Firing Accept Match POST to:", targetUrl);
+
+      try {
+        const res = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomId: state.roomId, guestUser: state.user })
+        });
+
+        if (!res.ok) {
+          throw new Error(`Server returned status code ${res.status} at endpoint`);
+        }
+
+        const data = await res.json();
+        console.log("Accept backend response data payload:", data);
+        
+        if (data.status === 'ready') {
+          state.opponent = data.room.host;
+          state.questions = data.room.clientQuestions; 
+          launchBattle();
+        } else {
+          throw new Error(data.error || "Room configuration data incomplete");
+        }
+      } catch (error) {
+        hideOverlay();
+        alert("🚨 Match Initialization Failed: " + error.message);
+        console.error("Full trace of match launch crash:", error);
+        // Turn the scanner back on so they can try clicking again if it failed
+        startCheckingForInvites();
       }
     }
 
